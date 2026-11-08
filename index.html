@@ -246,6 +246,11 @@ mark.hl{background:linear-gradient(transparent 50%,var(--h) 50%,var(--h) 94%,tra
 .gen{padding:16px;display:grid;gap:12px}
 .gen h3,.cform h3,.addform h3,.settings h3,.stkform h3{font-size:16px;font-weight:700}
 .gen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.gen-ings{display:grid;gap:10px;padding:12px;border:1px solid var(--rule);border-radius:10px;background:var(--sunk);min-width:0}
+.gen-ings-head{display:grid;gap:2px}
+.gen-ings-head b{font-size:14px}
+.gen-new{display:grid;gap:2px}
+.gen-new .cline{font-size:14px}
 
 /* week box */
 .week{padding:14px 16px;display:grid;gap:10px}
@@ -650,7 +655,7 @@ const S = {
   ui: {
     settings:false, editor:null, comboStage:null, comboForm:null, confirmDel:null, sug:null,
     ingStage:'all', ingCat:'all', manage:{}, add:{},
-    gen:{open:false, start:TODAY, days:'28', stage:'mid', meals:'0', repeat:'1', beef:true, chain:true, stock:true, fav:false, over:false},
+    gen:{open:false, start:TODAY, days:'28', stage:'mid', meals:'0', repeat:'1', beef:true, chain:true, stock:true, fav:false, over:false, ings:null, saveNew:true},
     ni:{name:'', cat:'veg', m:'7', color:'green'},
     np:{a:'beef', b:'broccoli', kind:'good', reason:''},
     stockForm:{open:false, ings:[], made:TODAY, days:String(SHELF), qty:'6', unit:'큐브', memo:'', showAll:false},
@@ -994,15 +999,77 @@ function toast(msg, undo){
 }
 
 /* ───────────── generator ───────────── */
+// 자동 짜기에서 '쓸 재료'로 켠 재료만 들어간 조합인지 (곁들임 과일은 켠 것만 남김)
+function comboFits(c, sel){ if (c.protein && !sel.has(c.protein)) return false; return c.items.every(id => id === 'rice' || sel.has(id)); }
 function poolFor(stId, o){
   let pool = combosOf(stId);
   if (pool.length < 3) pool = combosUpTo(stId);
   pool = pool.filter(c => ![c.protein, ...c.items, ...c.side].some(id => IM.get(id)?.allergy));
+  if (o && Array.isArray(o.ings)){
+    const sel = new Set(o.ings); const st = stageById(stId);
+    pool = pool.filter(c => comboFits(c, sel)).map(c => ({...c, side:c.side.filter(id => sel.has(id))}));
+    // 켰는데 어느 조합에도 없는 과일은 곁들임이 없는 조합 몇 개에 붙여요 (이번 자동 짜기에서만)
+    const used = new Set(pool.flatMap(c => [...c.items, ...c.side]));
+    for (const f of o.ings.filter(id => { const g = IM.get(id); return g && g.cat === 'fruit' && !used.has(id) && g.m <= st.max && !g.allergy; })){
+      let k = 0;
+      for (const c of pool){ if (k >= 3) break; if (!c.side.length){ c.side = [f]; c.sideAdded = true; k++; } }
+    }
+  }
   if (o && o.fav){ const f = pool.filter(c => c.fav); if (f.length) pool = f; }
   return pool.slice().sort((a,b) => (b.fav - a.fav) || byOrder(a,b));
 }
-function makePicker(stId, o){
-  const pool = poolFor(stId, o);
+const genStage = o => o.stage === 'auto' ? stageOf(isDateKey(o.start) ? o.start : TODAY) : o.stage;
+// 자동 짜기 창을 열 때 켜 두는 재료: 조합에 쓰인 재료 + 토핑 재고 + 냉장고에 남은 재료
+function defaultGenIngs(stId){
+  const st = stageById(stId); const set = new Set();
+  for (const c of combosUpTo(stId)) for (const id of [c.protein, ...c.items, ...c.side]) if (id) set.add(id);
+  for (const id of stockByIng().keys()) set.add(id);
+  for (const id of S.fridge) set.add(id);
+  return [...set].filter(id => { const g = IM.get(id); return g && !g.hidden && !g.allergy && g.m <= st.max && id !== 'rice'; });
+}
+// 켠 재료 중 어느 조합에도 안 들어간 재료(새로 산 재료 등)로 새 조합 만들기
+function extraCombos(stId, o){
+  if (!o || !Array.isArray(o.ings) || !o.ings.length) return [];
+  const st = stageById(stId);
+  const ok = id => { const g = IM.get(id); return g && g.m <= st.max && !g.allergy; };
+  const cat = id => IM.get(id).cat;
+  const sel = o.ings.filter(ok);
+  const base = poolFor(stId, {...o, fav:false});
+  const covered = new Set(base.flatMap(c => [c.protein, ...c.items, ...c.side]));
+  const prefer = ['beef','chicken'];
+  const rank = id => { const i = prefer.indexOf(id); return i < 0 ? 9 : i; };
+  const prots = sel.filter(id => cat(id) === 'prot').sort((a,b) => rank(a) - rank(b));
+  const vegs = sel.filter(id => ['veg','mush','grain','dairy'].includes(cat(id)) && id !== 'rice');
+  const keyOfC = c => ckey(c) + '|' + [...c.side].sort().join(',');
+  const keys = new Set(base.map(keyOfC)); const out = [];
+  const push = c => { const k = keyOfC(c); if (keys.has(k) || out.length >= 12) return; keys.add(k); out.push(c); };
+  const best = (p, must) => {
+    const others = vegs.filter(v => !must.includes(v)).slice(0, 14);
+    const cands = must.length ? [[]].concat(others.map(v => [v]), subsets(others, 2)) : others.map(v => [v]).concat(subsets(others, 2));
+    let pick = null, bs = -Infinity;
+    for (const extra of cands){
+      const items = [...must, ...extra];
+      if (!items.length || pairsFor([p, ...items]).some(x => x.kind === 'bad')) continue;
+      const s = scoreCombo(p, items) - (items.length === 1 && others.length ? 4 : 0);
+      if (s > bs){ bs = s; pick = items; }
+    }
+    return pick;
+  };
+  for (const x of sel.filter(id => !covered.has(id))){
+    const c0 = cat(x);
+    if (c0 === 'fruit') continue; // 과일은 poolFor에서 곁들임으로 붙임
+    if (c0 === 'prot'){ const it = best(x, []); if (it) push({protein:x, items:it, side:[], newIds:[x]}); }
+    else {
+      const ps = prots.length ? prots.slice(0, 2) : [''];
+      for (const p of ps){ const it = best(p, [x]); if (it) push({protein:p, items:it, side:[], newIds:[x]}); }
+    }
+  }
+  return out.map((c, n) => ({...c, id:'new-' + stId + '-' + n, stage:stId, fav:false, memo:'', order:-100 + n, created:0, isNew:true}));
+}
+function makePicker(stId, o, extras){
+  const ex = extras || [];
+  const exIds = new Set(ex.map(c => c.id));
+  const pool = ex.concat(poolFor(stId, o).filter(c => !exIds.has(c.id)));
   if (!pool.length) return null;
   const SB = o.stock ? stockByIng() : null;
   const stockScore = (c, k) => {
@@ -1048,9 +1115,19 @@ const itemsOfMeals = meals => new Set(meals.flatMap(m => [...m.items]));
 function runGenerate(){
   const o = S.ui.gen;
   if (!isDateKey(o.start)){ toast('시작일을 골라주세요'); return; }
+  if (Array.isArray(o.ings) && !o.ings.length){ toast('쓸 재료를 하나 이상 켜 주세요'); return; }
   const n = genDays(o), start = parseKey(o.start);
   const dates = Array.from({length:n}, (_, i) => keyOf(addDays(start, i)));
   const pickers = {}; let prev = new Set(); let cur = null; let streak = 0; let made = 0; const missing = new Set();
+  const extrasBy = {}; let savedNew = 0;
+  const extrasFor = stId => {
+    if (!(stId in extrasBy)){
+      let ex = extraCombos(stId, o);
+      if (o.saveNew && ex.length){ ex = ex.map(c => newCombo(stId, c.protein, c.items, c.side, `자동 짜기에서 만듦 (새 재료: ${c.newIds.map(nm).join(', ')})`)); savedNew += ex.length; }
+      extrasBy[stId] = ex;
+    }
+    return extrasBy[stId];
+  };
   for (const k of dates){
     const existing = S.plan.get(k);
     if (!o.over && existing && existing.meals.length){ prev = itemsOfMeals(existing.meals); cur = null; continue; }
@@ -1058,7 +1135,7 @@ function runGenerate(){
     const st = stageById(stId);
     const nMeals = Number(o.meals) || st.meals;
     if (!cur || streak >= Number(o.repeat) || cur.stage !== stId || cur.meals.length !== nMeals){
-      const pk = pickers[stId] || (pickers[stId] = makePicker(stId, o));
+      const pk = pickers[stId] || (pickers[stId] = makePicker(stId, o, extrasFor(stId)));
       if (!pk){ missing.add(st.name); cur = null; continue; }
       const slots = SLOTS[Math.min(nMeals, 4)] || SLOTS[2];
       const meals = []; const used = new Set();
@@ -1066,7 +1143,7 @@ function runGenerate(){
         const want = o.beef ? (i % 2 === 0 ? 'beef' : 'other') : 'any';
         const c = pk.pick(want, prev, used, k); if (!c) continue;
         used.add(c.id);
-        meals.push(normMeal({slot:slots[i] || '간식', protein:c.protein, items:c.items, side:c.side, comboId:c.id}));
+        meals.push(normMeal({slot:slots[i] || '간식', protein:c.protein, items:c.items, side:c.side, comboId:c.isNew ? '' : c.id}));
       }
       cur = {stage:stId, meals}; streak = 0;
     }
@@ -1075,8 +1152,8 @@ function runGenerate(){
     setDay(k, day); made++;
     prev = itemsOfMeals(day.meals);
   }
-  if (made){ S.ui.gen.open = false; toast(`${made}일 식단을 짰어요` + (missing.size ? ` · ${[...missing].join(', ')} 조합이 없어 비운 날이 있어요` : '')); }
-  else if (missing.size) toast(`${[...missing].join(', ')} 조합이 없어요. 조합 탭에서 먼저 만들어 주세요`);
+  if (made){ S.ui.gen.open = false; toast(`${made}일 식단을 짰어요` + (savedNew ? ` · 새 조합 ${savedNew}개를 조합 목록에 저장했어요` : '') + (missing.size ? ` · ${[...missing].join(', ')} 조합이 없어 비운 날이 있어요` : '')); }
+  else if (missing.size) toast(`${[...missing].join(', ')}에 켠 재료로 만들 조합이 없어요. 쓸 재료를 더 켜 주세요`);
   else toast('빈 날이 없어요. ‘이미 짜둔 날도 다시 짜기’를 켜면 새로 짜요');
 }
 
@@ -1217,6 +1294,7 @@ function settingsHTML(){
       </div>
       ${S.ui.qr ? `<div class="qr-box">${qrImg(connectUrl())}
         <p class="hint">폰 카메라로 이 QR을 찍어 열면 바로 연결돼요. 이 QR과 링크는 비밀번호와 같으니 다른 사람에게 보여주지 마세요.</p>
+        <p class="hint">아이폰에서 ‘홈 화면에 추가’한 앱은 사파리와 따로 저장돼요. 홈 화면 앱을 처음 열면 설정에서 이 링크를 붙여넣고 ‘연결’을 눌러요.</p>
         <div class="row"><button type="button" class="btn sm" data-act="copy-link">연결 링크 복사</button></div></div>` : ''}
       ${S.ui.confirmUnlink
         ? `<div class="confirm">연결을 끊으면 이 기기에 있는 사본도 지워요. 저장소의 기록은 그대로예요. <button type="button" class="btn sm danger" data-act="unlink-yes">연결 끊기</button><button type="button" class="btn sm quiet" data-act="unlink-no">취소</button></div>`
@@ -1230,7 +1308,8 @@ function settingsHTML(){
         <li><b>Permissions</b>(권한)에서 <b>Contents</b>(파일 내용)를 <b>Read and write</b>(읽기·쓰기)로 바꿔요. 목록에 없으면 <b>Add permissions</b>(권한 추가)를 눌러 Contents를 골라요</li>
         <li>맨 아래 <b>Generate token</b>(토큰 만들기)을 누르고, 나온 값(github_pat_로 시작)을 복사해 아래 칸에 붙여넣어요</li>
       </ol>
-      <label class="f" for="tok">GitHub 토큰<input type="password" id="tok" data-bind="tok" autocomplete="off" spellcheck="false" placeholder="github_pat_..." value="${esc(S.ui.tok)}"></label>
+      <label class="f" for="tok">GitHub 토큰 또는 연결 링크<input type="password" id="tok" data-bind="tok" autocomplete="off" spellcheck="false" placeholder="github_pat_... 또는 https://...#connect=..." value="${esc(S.ui.tok)}"></label>
+      <p class="hint">이미 연결된 기기의 설정 → ‘연결 링크 복사’로 받은 링크를 붙여넣어도 돼요. 아이폰 홈 화면 앱은 사파리와 저장 공간이 따로라서 이 방법으로 연결해요.</p>
       <div class="row"><button type="button" class="btn primary" data-act="connect">연결</button></div>`;
   return `<section class="card settings" aria-label="설정">
     <div class="settings-grid">
@@ -1383,7 +1462,25 @@ function genHTML(){
   const n = genDays(o); const start = parseKey(o.start || TODAY);
   let filled = 0; const stSet = new Set();
   for (let i = 0; i < n; i++){ const k = keyOf(addDays(start, i)); if (S.plan.get(k)?.meals.length) filled++; stSet.add(o.stage === 'auto' ? stageOf(k) : o.stage); }
+  if (!Array.isArray(o.ings)) o.ings = defaultGenIngs(genStage(o));
   const pools = [...stSet].map(s => { const p = poolFor(s, o); const own = combosOf(s).length; return `${stageById(s).name} ${p.length}개 조합${own < 3 && p.length ? ' (이전 단계 조합 포함)' : ''}`; }).join(', ');
+  const chipStage = genStage(o);
+  const extras = extraCombos(chipStage, o);
+  const sideFruits = [...new Set(poolFor(chipStage, o).filter(c => c.sideAdded).flatMap(c => c.side))];
+  const ingBox = `<div class="gen-ings">
+      <div class="gen-ings-head"><b>쓸 재료 ${o.ings.length}가지</b><span class="hint">끈 재료가 든 조합은 빼고 짜요. 새로 산 재료처럼 조합에 없는 재료를 켜면, 궁합 좋은 재료와 묶은 새 조합을 만들어 같이 넣어요.</span></div>
+      ${pickerHTML('gen', chipStage, [
+        {cats:['prot'], act:'g-ing', selected:o.ings},
+        {cats:['veg','mush','grain','dairy'], act:'g-ing', selected:o.ings},
+        {cats:['fruit'], act:'g-ing', selected:o.ings, label:'과일 (곁들임)'},
+      ], false, '<button type="button" class="btn sm quiet" data-act="g-ing-reset">처음 상태로</button><button type="button" class="btn sm quiet" data-act="g-ing-none">모두 끄기</button>')}
+      ${extras.length ? `<div class="preview">
+        <span class="cglabel">켠 재료로 새로 만들 조합 ${extras.length}개</span>
+        <div class="gen-new">${extras.map(c => `<span class="cline">${ptag(c.protein)} ${comboLine(c, true)} <span class="bdg">새 재료 ${esc(c.newIds.map(nm).join(', '))}</span></span>`).join('')}</div>
+        <label class="checks"><input type="checkbox" id="g-savenew" data-bind="gen.saveNew"${o.saveNew ? ' checked' : ''}> 새로 만든 조합을 조합 목록에도 저장</label>
+      </div>` : ''}
+      ${sideFruits.length ? `<p class="hint">조합에 없는 과일 ${sideFruits.map(hl).join(' ')}도 곁들임으로 몇 끼에 붙여 넣어요.</p>` : ''}
+    </div>`;
   const sel = (id, opts, val) => `<select id="${id}" data-bind="gen.${id.slice(2)}" data-rerender="1">${opts.map(([v,l]) => `<option value="${v}"${String(val) === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const stOpts = (hasBirth ? [['auto','날짜별 자동 (생일 기준)']] : []).concat(STAGES.map(s => [s.id, `${s.name} · ${s.range}`]));
   return `<form class="card gen" data-form="gen">
@@ -1402,7 +1499,8 @@ function genHTML(){
       <label><input type="checkbox" id="g-fav" data-bind="gen.fav" data-rerender="1"${o.fav ? ' checked' : ''}> ✓ 표시한 조합만</label>
       <label><input type="checkbox" id="g-over" data-bind="gen.over" data-rerender="1"${o.over ? ' checked' : ''}> 이미 짜둔 날도 다시 짜기</label>
     </div>
-    <p class="hint">${n}일 · ${esc(pools || '조합 없음')}${filled ? (o.over ? ` · 이미 짜둔 ${filled}일도 새로 바꿔요 (메모는 남겨요)` : ` · 이미 짜둔 ${filled}일은 그대로 둬요`) : ''}</p>
+    ${ingBox}
+    <p class="hint">${n}일 · ${esc(pools || '조합 없음')}${extras.length ? ` + 새 조합 ${extras.length}개` : ''}${filled ? (o.over ? ` · 이미 짜둔 ${filled}일도 새로 바꿔요 (메모는 남겨요)` : ` · 이미 짜둔 ${filled}일은 그대로 둬요`) : ''}</p>
     <div class="row"><button type="submit" class="btn primary">식단 만들기</button><button type="button" class="btn quiet" data-act="gen-toggle">닫기</button></div>
   </form>`;
 }
@@ -1785,6 +1883,7 @@ function selectInCtx(ctx, id){
   else if (ctx === 'manual'){ if (S.ui.editor && S.ui.editor.draft) placeIn(S.ui.editor.draft, g); }
   else if (ctx === 'combo'){ if (S.ui.comboForm) placeIn(S.ui.comboForm, g); }
   else if (ctx === 'stock'){ if (!S.ui.stockForm.ings.includes(id)) S.ui.stockForm.ings.push(id); }
+  else if (ctx === 'gen'){ const o = S.ui.gen; if (!Array.isArray(o.ings)) o.ings = []; if (!o.ings.includes(id)) o.ings.push(id); }
 }
 
 document.addEventListener('click', e => {
@@ -1800,8 +1899,11 @@ document.addEventListener('click', e => {
     case 'day-step': S.sel = keyOf(addDays(parseKey(S.sel), Number(t.dataset.d))); S.ui.editor = null; goMonthOf(S.sel); break;
     case 'gen-toggle':
       S.ui.gen.open = !S.ui.gen.open;
-      if (S.ui.gen.open){ S.ui.gen.start = S.sel; S.ui.gen.stage = isDateKey(S.settings.birthDate) ? 'auto' : curStage(); }
+      if (S.ui.gen.open){ S.ui.gen.start = S.sel; S.ui.gen.stage = isDateKey(S.settings.birthDate) ? 'auto' : curStage(); S.ui.gen.ings = defaultGenIngs(genStage(S.ui.gen)); }
       break;
+    case 'g-ing': { const o = S.ui.gen; if (!Array.isArray(o.ings)) o.ings = []; toggleIn(o.ings, id); break; }
+    case 'g-ing-reset': S.ui.gen.ings = defaultGenIngs(genStage(S.ui.gen)); break;
+    case 'g-ing-none': S.ui.gen.ings = []; break;
     case 'meal-add': {
       const day = getDay(k); const st = stageById(stageOf(k)); const n = day.meals.length;
       const slots = SLOTS[Math.min(Math.max(st.meals, n + 1), 4)];
@@ -1908,8 +2010,11 @@ document.addEventListener('click', e => {
     case 'calmode': S.ui.calMode = v === 'list' ? 'list' : 'grid'; LS.set('calMode', S.ui.calMode); break;
     case 'open-settings': S.ui.settings = true; render(); window.scrollTo({top:0, behavior:'auto'}); return;
     case 'connect': {
-      const val = (S.ui.tok || '').trim();
-      if (!val){ toast('GitHub 토큰을 붙여넣어 주세요'); return; }
+      let val = (S.ui.tok || '').trim();
+      // 다른 기기의 '연결 링크 복사'로 받은 링크를 그대로 붙여넣어도 됨
+      const lm = val.match(/#connect=([^&\s]+)/);
+      if (lm){ try { val = decodeURIComponent(lm[1]).trim(); } catch (e){ val = lm[1].trim(); } }
+      if (!val){ toast('GitHub 토큰이나 연결 링크를 붙여넣어 주세요'); return; }
       token = val; LS.set('token', val); etag = null; S.ui.tok = '';
       render();
       pull(true).then(ok => {
