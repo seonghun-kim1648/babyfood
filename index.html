@@ -217,6 +217,23 @@ mark.hl{background:linear-gradient(transparent 50%,var(--h) 50%,var(--h) 94%,tra
 .mhead .st{order:3}
 .mnames,.mg-m{display:none}
 .mn{display:block;font-size:10.5px;line-height:1.35;padding:0 2px;border-radius:3px;background:var(--h);color:var(--ink);white-space:nowrap;overflow:hidden;letter-spacing:-.4px}
+/* 알레르기 테스트 강조 (빨간 테두리) */
+mark.hl.tst{outline:2px solid var(--bad);outline-offset:1px;border-radius:3px;font-weight:700}
+.mn.tst{box-shadow:inset 0 0 0 1.5px var(--bad);font-weight:700}
+.tst-t{color:var(--bad);font-weight:700}
+.ptag.tst{box-shadow:0 0 0 1.5px var(--bad)}
+.cell.testing{box-shadow:inset 0 0 0 2px var(--bad)}
+.cell.testing.sel{box-shadow:inset 0 0 0 2px var(--bad),inset 0 0 0 4px var(--accent)}
+.tstb{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:700;line-height:1.5;background:var(--bad);color:var(--sheet);border-radius:999px;padding:0 6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bdg.tstbdg{background:var(--bad-soft);color:var(--bad);box-shadow:inset 0 0 0 1px var(--bad)}
+.tests{display:grid;gap:8px}
+.testbox{border:2px solid var(--bad);border-radius:10px;padding:10px 12px;display:grid;gap:6px;background:var(--bad-soft)}
+.testbox-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}
+.tst-n{font-weight:700;color:var(--bad)}
+.testpick{display:grid;gap:10px;padding:10px;border:1px dashed var(--bad);border-radius:10px}
+.lrow.testing{box-shadow:inset 3px 0 0 var(--bad)}
+.lrow.testing.sel{box-shadow:inset 3px 0 0 var(--bad),inset 0 0 0 2px var(--accent)}
+.ltest{font-size:12.5px;font-weight:700;color:var(--bad);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 /* 목록 보기 */
 .cal-list{display:grid;border:1px solid var(--rule-2);border-radius:var(--r);overflow:hidden;background:var(--sheet);box-shadow:var(--shadow)}
 .lrow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:start;text-align:left;border:0;border-bottom:1px solid var(--rule);background:transparent;padding:10px 12px;min-width:0;color:var(--ink)}
@@ -423,7 +440,8 @@ details.more>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--i
   .cell{min-height:74px;padding:4px 3px 6px}
   .ctop{flex-wrap:wrap;gap:2px}
   .dnum{font-size:17px;min-width:21px;height:21px}
-  .mtxt,.memo-mark,.age,.mmeta,.dtot{display:none}
+  .mtxt,.memo-mark,.age,.mmeta,.dtot,.tstb .tn{display:none}
+  .tstb{font-size:9.5px;padding:0 4px}
   .ml{display:grid;gap:2px}
   .mhead{display:flex;align-items:center;gap:3px;min-width:0}
   .mhead .st{margin-left:auto;padding-left:0}
@@ -659,17 +677,18 @@ const S = {
     ni:{name:'', cat:'veg', m:'7', color:'green'},
     np:{a:'beef', b:'broccoli', kind:'good', reason:''},
     stockForm:{open:false, ings:[], made:TODAY, days:String(SHELF), qty:'6', unit:'큐브', memo:'', showAll:false},
-    stockEdit:null, tok:'', qr:false, confirmUnlink:false,
+    stockEdit:null, tok:'', qr:false, confirmUnlink:false, testPick:null,
   },
 };
 
 let IM = new Map();
 function refreshIng(){
   const m = new Map();
-  for (const [id,name,cat,mo,color,note,al] of ING) m.set(id, {id, name, cat, m:mo, color, note:note||'', al:!!al, custom:false, tried:false, allergy:false, hidden:false});
+  for (const [id,name,cat,mo,color,note,al] of ING) m.set(id, {id, name, cat, m:mo, color, note:note||'', al:!!al, custom:false, tried:false, allergy:false, hidden:false, test:null});
+  const normTest = t => t && typeof t === 'object' && isDateKey(t.start) ? {start:t.start, days:Math.max(1, Math.min(14, Number(t.days) || 3)), result:t.result === 'ok' || t.result === 'bad' ? t.result : ''} : null;
   for (const [id,o] of S.ingUser){
-    if (m.has(id)) Object.assign(m.get(id), {tried:!!o.tried, allergy:!!o.allergy, hidden:!!o.hidden});
-    else if (o.custom && o.name) m.set(id, {id, name:String(o.name), cat:CAT_NAME[o.cat]?o.cat:'veg', m:Number(o.m)||7, color:COLORS.some(c=>c[0]===o.color)?o.color:'green', note:o.note||'', al:false, custom:true, tried:!!o.tried, allergy:!!o.allergy, hidden:!!o.hidden});
+    if (m.has(id)) Object.assign(m.get(id), {tried:!!o.tried, allergy:!!o.allergy, hidden:!!o.hidden, test:normTest(o.test)});
+    else if (o.custom && o.name) m.set(id, {id, name:String(o.name), cat:CAT_NAME[o.cat]?o.cat:'veg', m:Number(o.m)||7, color:COLORS.some(c=>c[0]===o.color)?o.color:'green', note:o.note||'', al:false, custom:true, tried:!!o.tried, allergy:!!o.allergy, hidden:!!o.hidden, test:normTest(o.test)});
   }
   IM = m;
 }
@@ -694,9 +713,21 @@ const colorOf = id => IM.get(id)?.color || 'white';
 const hl = id => `<mark class="hl" style="--h:var(--hl-${colorOf(id)})">${esc(nm(id))}</mark>`;
 const dot = id => `<i class="dot" style="--d:var(--dot-${colorOf(id)})" title="${esc(nm(id))}"></i>`;
 const ptag = id => `<i class="ptag" style="--p:var(--p-${id ? (PGROUP[id]||'other') : 'other'})" aria-hidden="true">${esc(id ? nm(id).slice(0,1) : '–')}</i>`;
-const ckey = c => (c.protein||'') + '|' + [...(c.items||[])].sort().join(',');
 const byIng = (a, b) => (a.m - b.m) || a.name.localeCompare(b.name, 'ko');
 const mealIds = m => [...new Set([m.protein, ...m.items, ...m.side].filter(Boolean))];
+// 단백질 여러 개: 첫 번째는 protein, 나머지 단백질은 items에 함께 저장
+const isProt = id => IM.get(id)?.cat === 'prot';
+const protsOf = c => [c.protein, ...(c.items || []).filter(isProt)].filter(Boolean);
+const restOf = c => [...(c.items || []).filter(isProt), ...(c.items || []).filter(id => !isProt(id))]; // 대표 단백질 뺀 나머지 (단백질 먼저)
+const orderedIds = c => [c.protein, ...restOf(c)].filter(Boolean);
+const ckey = c => protsOf(c).slice().sort().join('+') + '|' + (c.items || []).filter(id => !isProt(id)).sort().join(',');
+function toggleProt(dr, id){
+  if (protsOf(dr).includes(id)){
+    if (dr.protein === id){ const nx = dr.items.find(isProt) || ''; dr.protein = nx; if (nx) dr.items = dr.items.filter(x => x !== nx); }
+    else dr.items = dr.items.filter(x => x !== id);
+  } else if (!dr.protein) dr.protein = id;
+  else dr.items.push(id);
+}
 
 function normMeal(m){ m = m || {}; return {slot:SLOT_CHOICES.includes(m.slot)?m.slot:'오전', time:isTime(m.time)?m.time:'', protein:typeof m.protein==='string'?m.protein:'', items:arr(m.items), side:arr(m.side), comboId:typeof m.comboId==='string'?m.comboId:'', status:STATUS.some(s=>s[0]===m.status)?m.status:'plan', amount:typeof m.amount==='number'?m.amount:null, note:typeof m.note==='string'?m.note:'', stockUsed:arr(m.stockUsed)}; }
 function normDay(d){ d = d || {}; return {meals:(Array.isArray(d.meals)?d.meals:[]).map(normMeal), memo:typeof d.memo==='string'?d.memo:''}; }
@@ -766,13 +797,32 @@ function badges(r){
   if (r.good.length) b.push(`<span class="bdg good">궁합 ${r.good.length}</span>`);
   return b.join('');
 }
-function comboLine(c, withProt){
-  const parts = [];
-  if (withProt && c.protein) parts.push(hl(c.protein));
-  for (const id of c.items) parts.push(hl(id));
-  if (c.side && c.side.length) parts.push(`<span class="side">+ ${c.side.map(hl).join(' ')}</span>`);
+function comboLine(c, withProt, T){
+  const h = id => hlT(id, T);
+  const parts = (withProt ? orderedIds(c) : restOf(c)).map(h);
+  if (c.side && c.side.length) parts.push(`<span class="side">+ ${c.side.map(h).join(' ')}</span>`);
   return parts.join(' ') || '<span class="muted">재료 없음</span>';
 }
+
+/* ───────────── 알레르기 테스트 (새 재료를 며칠 동안 강조) ───────────── */
+const TEST_DAYS = 3;
+function testsOn(k){
+  const out = [];
+  for (const g of IM.values()){
+    const t = g.test; if (!t) continue;
+    const n = daysBetween(t.start, k) + 1;
+    if (n >= 1 && n <= t.days) out.push({id:g.id, n, days:t.days, result:t.result, start:t.start});
+  }
+  return out;
+}
+const testSet = k => new Set(testsOn(k).map(t => t.id));
+function lastTest(){
+  let best = null;
+  for (const g of IM.values()) if (g.test && (!best || g.test.start > best.start)) best = {id:g.id, ...g.test};
+  return best;
+}
+const hlT = (id, T) => T && T.has(id) ? `<mark class="hl tst" style="--h:var(--hl-${colorOf(id)})" title="알레르기 테스트 중">${esc(nm(id))}</mark>` : hl(id);
+const ptagT = (id, T) => T && T.has(id) ? ptag(id).replace('class="ptag"', 'class="ptag tst"') : ptag(id);
 function scoreCombo(p, items){
   let s = 0;
   for (const x of pairsFor([p, ...items])) s += x.kind === 'good' ? 3 : -8;
@@ -860,7 +910,7 @@ function saveStock(s){ S.stock.set(s.id, s); const {id, ...body} = s; dbSet('sto
 function delStock(id){ const s = S.stock.get(id); S.stock.delete(id); dbDel('stock/'+id); return s; }
 function saveIngUser(id){
   const o = S.ingUser.get(id);
-  if (!o || (!o.custom && !o.tried && !o.allergy && !o.hidden)){ S.ingUser.delete(id); dbDel('ingredients/'+id); }
+  if (!o || (!o.custom && !o.tried && !o.allergy && !o.hidden && !o.test)){ S.ingUser.delete(id); dbDel('ingredients/'+id); }
   else dbSet('ingredients/'+id, o);
   refreshIng();
 }
@@ -1370,21 +1420,27 @@ function pickerHTML(ctx, stId, sections, showAll, extraTools){
 // 폰 달력 칸에 들어갈 짧은 이름 (4글자 넘는 것만)
 const SHORT = {kingoyster:'새송이', shiitake:'표고', button:'양송이', enoki:'팽이', cauliflower:'콜리', redcabbage:'적양배', noodle:'국수', cheese:'치즈', yogurt:'요거트', quail:'메추리', pork:'돼지', gim:'김', watermelon:'수박', perilla:'들기름'};
 const shortNm = id => SHORT[id] || (nm(id).length > 4 ? nm(id).slice(0, 3) : nm(id));
-function cellMeal(m){
-  const veg = m.items;
-  const txt = veg.map(nm).join('·') + (m.side.length ? ' +' + m.side.map(nm).join('·') : '');
+function cellMeal(m, T){
+  const rest = restOf(m); // 대표 단백질은 태그로, 나머지(추가 단백질·채소)는 이름으로
+  const txt = rest.map(id => T && T.has(id) ? `<b class="tst-t">${esc(nm(id))}</b>` : esc(nm(id))).join('·')
+    + (m.side.length ? ' +' + m.side.map(id => T && T.has(id) ? `<b class="tst-t">${esc(nm(id))}</b>` : esc(nm(id))).join('·') : '');
   const st = {good:'<b class="st good" title="잘 먹음">✓</b>', some:'<b class="st some" title="조금 먹음">△</b>', no:'<b class="st no" title="거부">✕</b>'}[m.status] || '';
   const when = m.time ? `${m.slot} ${m.time}` : m.slot;
   const g = m.amount != null ? `${m.amount}g` : '';
-  const names = veg.map(id => `<span class="mn" style="--h:var(--hl-${colorOf(id)})">${esc(shortNm(id))}</span>`).join('')
-    + m.side.map(id => `<span class="mn" style="--h:var(--hl-${colorOf(id)})">+${esc(shortNm(id))}</span>`).join('');
-  return `<span class="ml"><span class="mhead">${ptag(m.protein)}${st}</span><span class="mb"><span class="mtxt">${esc(txt || '재료 없음')}</span><span class="mnames">${names || '<span class="mn">재료 없음</span>'}</span>${g ? `<b class="mg mg-m">${g}</b>` : ''}<span class="mmeta"><span>${esc(when)}</span>${g ? `<b class="mg">${g}</b>` : ''}</span></span></span>`;
+  const pill = (id, pre) => `<span class="mn${T && T.has(id) ? ' tst' : ''}" style="--h:var(--hl-${colorOf(id)})">${pre}${esc(shortNm(id))}</span>`;
+  const names = rest.map(id => pill(id, '')).join('') + m.side.map(id => pill(id, '+')).join('');
+  return `<span class="ml"><span class="mhead">${ptagT(m.protein, T)}${st}</span><span class="mb"><span class="mtxt">${txt || '재료 없음'}</span><span class="mnames">${names || '<span class="mn">재료 없음</span>'}</span>${g ? `<b class="mg mg-m">${g}</b>` : ''}<span class="mmeta"><span>${esc(when)}</span>${g ? `<b class="mg">${g}</b>` : ''}</span></span></span>`;
 }
 // 목록 보기: 한 줄에 하루
-function listMeal(m){
+function listMeal(m, T){
   const st = {good:'<b class="st good">✓ 잘 먹음</b>', some:'<b class="st some">△ 조금</b>', no:'<b class="st no">✕ 거부</b>'}[m.status] || '';
-  const items = [m.protein, ...m.items].filter(Boolean).map(hl).join(' ');
-  return `<span class="lmeal"><span class="lmeta">${ptag(m.protein)}<span>${esc(m.slot)}${m.time ? ' ' + esc(m.time) : ''}</span>${m.amount != null ? `<b class="mg">${m.amount}g</b>` : ''}${st}</span><span class="litems">${items || '<span class="muted">재료 없음</span>'}${m.side.length ? ` <span class="side">+ ${m.side.map(hl).join(' ')}</span>` : ''}</span></span>`;
+  const items = orderedIds(m).map(id => hlT(id, T)).join(' ');
+  return `<span class="lmeal"><span class="lmeta">${ptagT(m.protein, T)}<span>${esc(m.slot)}${m.time ? ' ' + esc(m.time) : ''}</span>${m.amount != null ? `<b class="mg">${m.amount}g</b>` : ''}${st}</span><span class="litems">${items || '<span class="muted">재료 없음</span>'}${m.side.length ? ` <span class="side">+ ${m.side.map(id => hlT(id, T)).join(' ')}</span>` : ''}</span></span>`;
+}
+function testBadge(tests, full){
+  if (!tests.length) return '';
+  const t = tests[0];
+  return `<span class="tstb" title="알레르기 테스트: ${esc(nm(t.id))} ${t.n}/${t.days}일째"><span class="tn">${full ? esc(nm(t.id)) + ' ' : ''}</span>${t.n}/${t.days}</span>`;
 }
 function listHTML(y, mo){
   const last = new Date(y, mo + 1, 0).getDate();
@@ -1393,9 +1449,10 @@ function listHTML(y, mo){
     const d = new Date(y, mo, dd), k = keyOf(d), day = S.plan.get(k), meals = day ? day.meals : [];
     const grams = meals.filter(m => m.amount != null);
     const wd = d.getDay();
-    rows += `<button type="button" class="lrow${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}" data-act="sel" data-k="${k}" aria-pressed="${k === S.sel}">
+    const tests = testsOn(k); const T = new Set(tests.map(t => t.id));
+    rows += `<button type="button" class="lrow${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${tests.length ? ' testing' : ''}" data-act="sel" data-k="${k}" aria-pressed="${k === S.sel}">
       <span class="ldate${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}"><b>${dd}</b><small>${WD[wd]}</small></span>
-      <span class="lmeals">${meals.length ? meals.map(listMeal).join('') : '<span class="muted">식단 없음</span>'}${day && day.memo ? `<span class="lmemo">메모 · ${esc(day.memo)}</span>` : ''}</span>
+      <span class="lmeals">${tests.length ? `<span class="ltest">알레르기 테스트 ${tests.map(t => `${hlT(t.id, T)} ${t.n}/${t.days}일째`).join(', ')}</span>` : ''}${meals.length ? meals.map(m => listMeal(m, T)).join('') : '<span class="muted">식단 없음</span>'}${day && day.memo ? `<span class="lmemo">메모 · ${esc(day.memo)}</span>` : ''}</span>
       ${grams.length ? `<span class="ltot">${grams.reduce((s, m) => s + m.amount, 0)}g</span>` : '<span></span>'}
     </button>`;
   }
@@ -1419,10 +1476,11 @@ function calendarHTML(){
       : rs.some(r => r.bad.length) ? '<i class="flag warn" title="주의할 궁합이 있어요"></i>' : '';
     const grams = meals.filter(m => m.amount != null);
     const tot = grams.length ? `<span class="dtot" title="이날 먹은 양 합계">${grams.reduce((s, m) => s + m.amount, 0)}g</span>` : '';
-    const label = `${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일` + (meals.length ? `, ${meals.length}끼: ` + meals.map(m => `${m.slot}${m.time ? ' ' + m.time : ''} ` + [m.protein, ...m.items].filter(Boolean).map(nm).join(' ') + (m.amount != null ? ` ${m.amount}그램` : '')).join(' / ') : ', 식단 없음');
-    cells += `<button type="button" class="cell${inMonth ? '' : ' out'}${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${d.getDay() === 0 ? ' sun' : ''}" data-act="sel" data-k="${k}" aria-label="${esc(label)}" aria-pressed="${k === S.sel}">
-      <span class="ctop"><span class="dnum">${d.getDate()}</span>${change ? `<span class="stchg">${stageById(stId).name} 시작</span>` : (a && a.d === 0 ? `<span class="age">${a.m}개월</span>` : '')}<span class="cright">${tot}${flag}</span></span>
-      <span class="meals">${meals.map(cellMeal).join('')}${day && day.memo ? '<span class="memo-mark">메모 있음</span>' : ''}</span>
+    const tests = testsOn(k); const T = new Set(tests.map(t => t.id));
+    const label = `${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일` + (tests.length ? `, 알레르기 테스트 ${tests.map(t => `${nm(t.id)} ${t.n}일째`).join(', ')}` : '') + (meals.length ? `, ${meals.length}끼: ` + meals.map(m => `${m.slot}${m.time ? ' ' + m.time : ''} ` + orderedIds(m).map(nm).join(' ') + (m.amount != null ? ` ${m.amount}그램` : '')).join(' / ') : ', 식단 없음');
+    cells += `<button type="button" class="cell${inMonth ? '' : ' out'}${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${d.getDay() === 0 ? ' sun' : ''}${tests.length ? ' testing' : ''}" data-act="sel" data-k="${k}" aria-label="${esc(label)}" aria-pressed="${k === S.sel}">
+      <span class="ctop"><span class="dnum">${d.getDate()}</span>${change ? `<span class="stchg">${stageById(stId).name} 시작</span>` : (a && a.d === 0 ? `<span class="age">${a.m}개월</span>` : '')}${testBadge(tests, true)}<span class="cright">${tot}${flag}</span></span>
+      <span class="meals">${meals.map(m => cellMeal(m, T)).join('')}${day && day.memo ? '<span class="memo-mark">메모 있음</span>' : ''}</span>
     </button>`;
   }
   const g = S.ui.gen;
@@ -1450,7 +1508,7 @@ function calendarHTML(){
       <div class="legend">
         <span>${ptag('beef')} 소고기</span><span>${ptag('chicken')} 닭고기</span><span>${ptag('tofu')} 두부</span><span>${ptag('cod')} 생선</span>
         <span><b class="st good">✓</b> 잘 먹음</span><span><b class="st some">△</b> 조금</span><span><b class="st no">✕</b> 거부</span>
-        <span><b class="mg">120g</b> 먹은 양</span>
+        <span><b class="mg">120g</b> 먹은 양</span><span><span class="tstb">1/3</span> 알레르기 테스트 (빨간 테두리)</span>
         <span><i class="flag bad"></i> 시기·반응 확인</span><span><i class="flag warn"></i> 주의 궁합</span>
       </div>
       ${weekHTML()}
@@ -1533,17 +1591,51 @@ function sheetHTML(){
       <div class="sheet-tags"><span class="tag stage">${st.name} ${st.range}</span>${a ? `<span class="tag">생후 ${a.m}개월 ${a.d}일</span>` : ''}${grams.length ? `<span class="tag total">먹은 양 ${tot}g</span>` : ''}</div>
     </div>
     <div class="day-step"><button type="button" class="btn sm" data-act="day-step" data-d="-1">‹ 전날</button><button type="button" class="btn sm" data-act="day-step" data-d="1">다음날 ›</button></div>
+    ${testHTML(k)}
     ${day.meals.length ? `<div class="meal-list">${day.meals.map((m, i) => mealHTML(k, m, i, st, SB)).join('')}</div>` : `<div class="empty"><p>이 날은 아직 식단이 없어요.</p><div class="row"><button type="button" class="btn" data-act="meal-add" data-k="${k}" data-mode="combo">조합에서 고르기</button><button type="button" class="btn" data-act="meal-add" data-k="${k}" data-mode="fridge">남은 재료로 짜기</button><button type="button" class="btn" data-act="meal-add" data-k="${k}" data-mode="manual">직접 고르기</button></div></div>`}
     ${day.meals.length && day.meals.length < 5 ? `<div class="row"><button type="button" class="btn quiet" data-act="meal-add" data-k="${k}" data-mode="combo">+ 끼니 추가</button></div>` : ''}
     <p class="fridge-line"><b>남은 재료</b>${fr.length ? fr.map(hl).join(' ') : '<span class="muted">없음</span>'}${SB.size ? ` <a class="btn sm quiet" href="#stock">토핑 재고 ${SB.size}가지</a>` : ''}</p>
     <label class="memo" for="memo-${k}"><span>메모 · 반응 기록</span><textarea id="memo-${k}" data-field="memo" data-k="${k}" rows="3" placeholder="예: 볼 발진 없음, 변 상태 좋음">${esc(day.memo)}</textarea></label>
   </aside>`;
 }
+function testHTML(k){
+  const tests = testsOn(k);
+  const ui = S.ui.testPick && S.ui.testPick.k === k ? S.ui.testPick : null;
+  let h = '';
+  for (const t of tests){
+    const end = keyOf(addDays(parseKey(t.start), t.days - 1));
+    const res = t.result === 'ok' ? '<span class="bdg good">괜찮았어요</span>' : t.result === 'bad' ? '<span class="bdg bad">반응 있었어요</span>' : '';
+    h += `<div class="testbox">
+      <div class="testbox-head"><b>알레르기 테스트</b> ${hlT(t.id, new Set([t.id]))} <span class="tst-n">${t.n}/${t.days}일째</span> ${res}</div>
+      <p class="hint">${md(t.start)}~${md(end)} · 발진·두드러기, 입 주변 붉어짐, 구토·설사가 있는지 살펴요. 본 것은 아래 메모에 적어 두세요.</p>
+      <div class="row">${t.result
+        ? `<button type="button" class="btn sm quiet" data-act="test-reset" data-id="${t.id}">결과 지우기</button>`
+        : `<button type="button" class="btn sm" data-act="test-ok" data-id="${t.id}">괜찮았어요 (먹어봄으로)</button><button type="button" class="btn sm danger" data-act="test-bad" data-id="${t.id}">반응 있었어요</button>`}
+        <button type="button" class="btn sm quiet" data-act="test-cancel" data-id="${t.id}">테스트 취소</button></div>
+    </div>`;
+  }
+  const last = lastTest();
+  const next = last ? keyOf(addDays(parseKey(last.start), last.days)) : '';
+  h += `<div class="row"><button type="button" class="btn sm${ui ? ' on' : ''}" data-act="test-open" data-k="${k}" aria-expanded="${!!ui}">+ ${md(k)}부터 새 재료 알레르기 테스트</button>${last ? `<span class="hint">마지막 새 재료 ${hl(last.id)} ${md(last.start)} 시작 · 다음 새 재료는 <b>${md(next)}</b>부터</span>` : ''}</div>`;
+  if (ui){
+    const day = S.plan.get(k);
+    const inDay = day ? [...new Set(day.meals.flatMap(m => [...orderedIds(m), ...m.side]))] : [];
+    h += `<div class="testpick">
+      <div class="row"><label class="f" for="test-days" style="width:auto">테스트 기간<select id="test-days" data-bind="testPick.days">${[2,3,4,5,7].map(d => `<option value="${d}"${String(ui.days) === String(d) ? ' selected' : ''}>${d}일</option>`).join('')}</select></label></div>
+      ${inDay.length ? `<div class="cgroup"><span class="cglabel">이 날 식단에 있는 재료 중에서 고르기</span><div class="chips">${inDay.map(id => chip(id, false, 'test-start', false, false)).join('')}</div></div>` : ''}
+      <div class="row"><button type="button" class="btn sm quiet" data-act="test-more">${ui.more ? '다른 재료 목록 닫기' : '다른 재료에서 고르기'}</button></div>
+      ${ui.more ? pickerHTML('test', stageOf(k), [{cats:ALL_CATS, act:'test-start', selected:[]}], true) : ''}
+      <p class="hint">재료를 누르면 ${md(k)}부터 ${ui.days}일 동안 달력에 빨간 테두리로 표시돼요. 식단에 아직 없는 재료면 ‘재료 편집’으로 끼니에 넣어 주세요.</p>
+    </div>`;
+  }
+  return `<section class="tests" aria-label="알레르기 테스트">${h}</section>`;
+}
 function mealHTML(k, m, i, st, SB){
   const r = analyze(m.protein, m.items, m.side, st.id);
   const ed = S.ui.editor && S.ui.editor.k === k && S.ui.editor.i === i ? S.ui.editor : null;
-  const items = [m.protein, ...m.items].filter(Boolean).map(hl).join(' ');
-  const side = m.side.length ? `<span class="side">+ ${m.side.map(hl).join(' ')}</span>` : '';
+  const T = testSet(k);
+  const items = orderedIds(m).map(id => hlT(id, T)).join(' ');
+  const side = m.side.length ? `<span class="side">+ ${m.side.map(id => hlT(id, T)).join(' ')}</span>` : '';
   const tool = (mode, label) => `<button type="button" class="btn sm${ed && ed.mode === mode ? ' on' : ''}" data-act="ed" data-k="${k}" data-i="${i}" data-mode="${mode}" aria-expanded="${!!(ed && ed.mode === mode)}">${label}</button>`;
   const inStock = mealIds(m).filter(id => SB.has(id));
   const stockLine = (inStock.length || m.stockUsed.length) ? `<div class="stockline"><span class="cglabel">토핑 재고</span>${inStock.map(id => schip(id, SB.get(id))).join('')}
@@ -1570,7 +1662,7 @@ function pickBtn(c, stId, act, extra){
 }
 function draftPreview(dr, stId){
   const r = analyze(dr.protein, dr.items, dr.side, stId);
-  return `<div class="preview"><p class="meal-items">${[dr.protein, ...dr.items].filter(Boolean).map(hl).join(' ') || '<span class="muted">재료를 눌러 담아요</span>'} ${dr.side.length ? `<span class="side">+ ${dr.side.map(hl).join(' ')}</span>` : ''}</p>${notesHTML(r)}</div>`;
+  return `<div class="preview"><p class="meal-items">${orderedIds(dr).map(hl).join(' ') || '<span class="muted">재료를 눌러 담아요</span>'} ${dr.side.length ? `<span class="side">+ ${dr.side.map(hl).join(' ')}</span>` : ''}</p>${notesHTML(r)}</div>`;
 }
 const draftButtons = `<div class="row"><button type="button" class="btn primary" data-act="manual-apply">이 끼니에 적용</button><button type="button" class="btn" data-act="manual-apply" data-save="1">적용하고 조합에도 저장</button><button type="button" class="btn quiet" data-act="ed-close">닫기</button></div>`;
 function editorHTML(k, i, m, st, ed){
@@ -1588,7 +1680,7 @@ function editorHTML(k, i, m, st, ed){
     return `<div class="editor">
       <h4>재료 직접 고르기</h4>
       ${pickerHTML('manual', st.id, [
-        {cats:['prot'], act:'d-prot', selected:dr.protein ? [dr.protein] : []},
+        {cats:['prot'], act:'d-prot', selected:protsOf(dr), label:'단백질 (여러 개 고를 수 있어요)'},
         {cats:['veg','mush','grain','dairy'], act:'d-item', selected:dr.items},
         {cats:['fruit'], act:'d-side', selected:dr.side, label:'곁들이는 과일'},
       ], ed.showAll, `<button type="button" class="btn sm quiet" data-act="d-all">${ed.showAll ? '이 시기 재료만' : '다음 시기 재료도 보기'}</button>`)}
@@ -1674,7 +1766,7 @@ function comboFormHTML(){
   return `<form class="card cform" data-form="combo">
     <h3>${f.id ? '조합 수정' : `새 ${st.name} 조합`}</h3>
     ${pickerHTML('combo', f.stage, [
-      {cats:['prot'], act:'cf-prot', selected:f.protein ? [f.protein] : []},
+      {cats:['prot'], act:'cf-prot', selected:protsOf(f), label:'단백질 (여러 개 고를 수 있어요)'},
       {cats:['veg','mush','grain','dairy'], act:'cf-item', selected:f.items},
       {cats:['fruit'], act:'cf-side', selected:f.side, label:'곁들이는 과일'},
     ], f.showAll, `<button type="button" class="btn sm quiet" data-act="cf-all">${f.showAll ? '이 시기 재료만' : '다음 시기 재료도 보기'}</button>`)}
@@ -1805,7 +1897,7 @@ function ingCard(g, cs){
   return `<div class="ing${locked ? ' locked' : ''}${g.allergy ? ' allergic' : ''}">
     <div class="ing-top"><i class="dot" style="--d:var(--dot-${g.color})"></i><b>${esc(g.name)}</b><span class="mo">${g.m}개월~</span></div>
     ${g.note ? `<p class="ing-note">${esc(g.note)}</p>` : ''}
-    <div class="ing-flags">${g.al ? '<span class="bdg warn">알레르기 주의 식품</span>' : ''}${locked ? `<span class="bdg">${stageById(stageForMonths(g.m)).name}부터</span>` : ''}${g.custom ? '<span class="bdg">직접 추가</span>' : ''}</div>
+    <div class="ing-flags">${g.test ? `<span class="bdg ${g.test.result === 'bad' ? 'bad' : g.test.result === 'ok' ? 'good' : 'tstbdg'}">테스트 ${md(g.test.start)}~${md(keyOf(addDays(parseKey(g.test.start), g.test.days - 1)))}${g.test.result === 'ok' ? ' · 괜찮음' : g.test.result === 'bad' ? ' · 반응' : ''}</span>` : ''}${g.al ? '<span class="bdg warn">알레르기 주의 식품</span>' : ''}${locked ? `<span class="bdg">${stageById(stageForMonths(g.m)).name}부터</span>` : ''}${g.custom ? '<span class="bdg">직접 추가</span>' : ''}</div>
     <div class="ing-acts"><button type="button" class="tog" aria-pressed="${g.tried}" data-act="ing-tried" data-id="${g.id}">먹어봄</button><button type="button" class="tog bad" aria-pressed="${g.allergy}" data-act="ing-allergy" data-id="${g.id}">반응 있음</button><button type="button" class="btn sm quiet" data-act="pk-del" data-id="${g.id}">목록에서 빼기</button>${g.custom ? `<button type="button" class="btn sm quiet danger" data-act="ing-del" data-id="${g.id}">삭제</button>` : ''}</div>
   </div>`;
 }
@@ -1873,8 +1965,22 @@ function newCombo(stage, protein, items, side, memo){
   saveCombo(c); return c;
 }
 function toggleIn(list, id){ const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); else list.push(id); }
+function startTest(k, id){
+  const days = Math.max(1, Math.min(14, Number(S.ui.testPick && S.ui.testPick.days) || TEST_DAYS));
+  const o = ingOverride(id); o.test = {start:k, days, result:''};
+  S.ingUser.set(id, o); saveIngUser(id);
+  S.ui.testPick = null;
+  toast(`‘${nm(id)}’ ${md(k)}부터 ${days}일 동안 알레르기 테스트로 표시해요`);
+}
+function setTest(id, patch){
+  const o = ingOverride(id); if (!o.test) return;
+  o.test = {...o.test, ...patch};
+  if (patch.result === 'ok') o.tried = true;
+  if (patch.result === 'bad') o.allergy = true;
+  S.ingUser.set(id, o); saveIngUser(id);
+}
 function placeIn(dr, g){
-  if (g.cat === 'prot') dr.protein = g.id;
+  if (g.cat === 'prot'){ if (!protsOf(dr).includes(g.id)) toggleProt(dr, g.id); }
   else if (g.cat === 'fruit'){ if (!dr.side.includes(g.id)) dr.side.push(g.id); }
   else if (!dr.items.includes(g.id)) dr.items.push(g.id);
 }
@@ -1885,10 +1991,11 @@ function selectInCtx(ctx, id){
   else if (ctx === 'combo'){ if (S.ui.comboForm) placeIn(S.ui.comboForm, g); }
   else if (ctx === 'stock'){ if (!S.ui.stockForm.ings.includes(id)) S.ui.stockForm.ings.push(id); }
   else if (ctx === 'gen'){ const o = S.ui.gen; if (!Array.isArray(o.ings)) o.ings = []; if (!o.ings.includes(id)) o.ings.push(id); }
+  else if (ctx === 'test'){ if (S.ui.testPick) startTest(S.ui.testPick.k, id); }
 }
 // 재료를 목록에서 뺄 때, 지금 고르고 있던 곳(재료 편집·조합 만들기·토핑 추가·자동 짜기)에서도 빼기
 function deselectEverywhere(id){
-  const drop = dr => { if (!dr) return; if (dr.protein === id) dr.protein = ''; dr.items = dr.items.filter(x => x !== id); dr.side = dr.side.filter(x => x !== id); };
+  const drop = dr => { if (!dr) return; if (protsOf(dr).includes(id)) toggleProt(dr, id); dr.items = dr.items.filter(x => x !== id); dr.side = dr.side.filter(x => x !== id); };
   drop(S.ui.editor && S.ui.editor.draft);
   drop(S.ui.comboForm);
   S.ui.stockForm.ings = S.ui.stockForm.ings.filter(x => x !== id);
@@ -1936,7 +2043,7 @@ document.addEventListener('click', e => {
       S.ui.editor = null; break;
     }
     case 'apply-combo': { const c = S.combos.get(id); if (c && ed){ applyToMeal(ed.k, ed.i, {protein:c.protein, items:c.items, side:c.side, comboId:c.id}); S.ui.editor = null; } break; }
-    case 'd-prot': if (ed) ed.draft.protein = ed.draft.protein === id ? '' : id; break;
+    case 'd-prot': if (ed) toggleProt(ed.draft, id); break;
     case 'd-item': if (ed) toggleIn(ed.draft.items, id); break;
     case 'd-side': if (ed) toggleIn(ed.draft.side, id); break;
     case 'd-all': if (ed) ed.showAll = !ed.showAll; break;
@@ -2024,6 +2131,18 @@ document.addEventListener('click', e => {
     }
 
     case 'calmode': S.ui.calMode = v === 'list' ? 'list' : 'grid'; LS.set('calMode', S.ui.calMode); break;
+    case 'test-open': S.ui.testPick = S.ui.testPick && S.ui.testPick.k === k ? null : {k, days:String(TEST_DAYS), more:false}; break;
+    case 'test-more': if (S.ui.testPick) S.ui.testPick.more = !S.ui.testPick.more; break;
+    case 'test-start': if (S.ui.testPick) startTest(S.ui.testPick.k, id); break;
+    case 'test-ok': setTest(id, {result:'ok'}); toast(`‘${nm(id)}’ 괜찮았어요. 먹어봄으로 표시했어요`); break;
+    case 'test-bad': setTest(id, {result:'bad'}); toast(`‘${nm(id)}’ 반응 있음으로 표시했어요. 자동 짜기와 추천에서 빠져요`); break;
+    case 'test-reset': setTest(id, {result:''}); break;
+    case 'test-cancel': {
+      const o = ingOverride(id); const prevTest = o.test; if (!prevTest) break;
+      delete o.test; S.ingUser.set(id, o); saveIngUser(id);
+      toast(`‘${nm(id)}’ 알레르기 테스트를 지웠어요`, () => { const o2 = ingOverride(id); o2.test = prevTest; S.ingUser.set(id, o2); saveIngUser(id); render(); });
+      break;
+    }
     case 'open-settings': S.ui.settings = true; render(); window.scrollTo({top:0, behavior:'auto'}); return;
     case 'connect': {
       let val = (S.ui.tok || '').trim();
@@ -2073,7 +2192,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'combo-edit': { const c = S.combos.get(id); if (c){ S.ui.comboForm = {id:c.id, stage:c.stage, protein:c.protein, items:[...c.items], side:[...c.side], memo:c.memo, showAll:false}; render(); window.scrollTo({top:0, behavior:'auto'}); } return; }
-    case 'cf-prot': if (S.ui.comboForm) S.ui.comboForm.protein = S.ui.comboForm.protein === id ? '' : id; break;
+    case 'cf-prot': if (S.ui.comboForm) toggleProt(S.ui.comboForm, id); break;
     case 'cf-item': if (S.ui.comboForm) toggleIn(S.ui.comboForm.items, id); break;
     case 'cf-side': if (S.ui.comboForm) toggleIn(S.ui.comboForm.side, id); break;
     case 'cf-all': if (S.ui.comboForm) S.ui.comboForm.showAll = !S.ui.comboForm.showAll; break;
