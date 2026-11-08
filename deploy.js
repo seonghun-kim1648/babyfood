@@ -14,11 +14,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function main(){
   console.log('이유식 식단 달력 배포\n');
 
-  const html = fs.readFileSync(path.join(DIR, 'index.html'), 'utf8');
+  // 버전 지문: index.html 내용(BUILD 값 제외)의 해시. 내용이 그대로면 값도 그대로라 쓸데없는 커밋이 안 생겨요.
+  const file = path.join(DIR, 'index.html');
+  const raw = fs.readFileSync(file, 'utf8');
+  if (!/const BUILD = '[^']*';/.test(raw)) throw new Error("index.html에 const BUILD = ''; 줄이 없어요");
+  const blank = raw.replace(/const BUILD = '[^']*';/, "const BUILD = '';");
+  const build = require('crypto').createHash('sha1').update(blank).digest('hex').slice(0, 10);
+  const html = blank.replace("const BUILD = '';", `const BUILD = '${build}';`);
+  if (html !== raw) fs.writeFileSync(file, html);
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
   if (!scripts.length) throw new Error('index.html에서 스크립트를 찾지 못했어요');
   for (const s of scripts) new vm.Script(s, {filename:'index.html'});
-  console.log('1) 페이지 검사 통과');
+  console.log(`1) 페이지 검사 통과 (버전 ${build})`);
 
   const changed = git('status', '--porcelain');
   if (changed){
