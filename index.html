@@ -191,7 +191,7 @@ mark.hl{background:linear-gradient(transparent 50%,var(--h) 50%,var(--h) 94%,tra
 .cell:hover{background:var(--sunk)}
 .cell.out{opacity:.42}
 .cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
-.ctop{display:flex;align-items:center;gap:5px;min-height:24px}
+.ctop{display:flex;flex-wrap:wrap;align-items:center;gap:2px 5px;min-height:24px}
 .cright{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
 .dnum{font-family:var(--font-display);font-size:21px;font-weight:700;line-height:1;min-width:24px;height:24px;display:inline-grid;place-items:center;border-radius:999px;font-variant-numeric:tabular-nums}
 .cell.sun .dnum{color:var(--bad)}
@@ -217,6 +217,16 @@ mark.hl{background:linear-gradient(transparent 50%,var(--h) 50%,var(--h) 94%,tra
 .mhead .st{order:3}
 .mnames,.mg-m{display:none}
 .mn{display:block;font-size:10.5px;line-height:1.35;padding:0 2px;border-radius:3px;background:var(--h);color:var(--ink);white-space:nowrap;overflow:hidden;letter-spacing:-.4px}
+/* D-day · 단계 시작일 */
+.dday{font-size:10.5px;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.dday.mile{color:var(--accent);font-weight:800}
+.ldd{font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ldd.mile{color:var(--accent);font-weight:800}
+.tag.dtag{background:var(--accent-soft);color:var(--accent)}
+.stage-starts{display:grid;gap:8px;padding-top:10px;border-top:1px dashed var(--rule-2)}
+.ss-note{font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.ss-note.on{color:var(--accent);font-weight:700}
+.tst-only{font-size:12px}
 /* 알레르기 테스트 강조 (빨간 테두리) */
 mark.hl.tst{outline:2px solid var(--bad);outline-offset:1px;border-radius:3px;font-weight:700}
 .mn.tst{box-shadow:inset 0 0 0 1.5px var(--bad);font-weight:700}
@@ -439,6 +449,7 @@ details.more>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--i
 @media (max-width:700px){
   .cell{min-height:74px;padding:4px 3px 6px}
   .ctop{flex-wrap:wrap;gap:2px}
+  .ctop .dday{font-size:9px;letter-spacing:-.3px}
   .dnum{font-size:17px;min-width:21px;height:21px}
   .mtxt,.memo-mark,.age,.mmeta,.dtot,.tstb .tn{display:none}
   .tstb{font-size:9.5px;padding:0 4px}
@@ -663,7 +674,7 @@ const isTime = s => typeof s === 'string' && /^\d{2}:\d{2}$/.test(s);
 const nowTime = () => { const n = new Date(); return `${pad(n.getHours())}:${pad(n.getMinutes())}`; };
 
 /* ───────────── state ───────────── */
-const DEFAULT_SETTINGS = {stage:'mid', babyName:'', birthDate:'', sex:''};
+const DEFAULT_SETTINGS = {stage:'mid', babyName:'', birthDate:'', sex:'', stageStarts:{}};
 const S = {
   settings: {...DEFAULT_SETTINGS},
   combos: new Map(), plan: new Map(), fridge: [], ingUser: new Map(), pairUser: new Map(), stock: new Map(),
@@ -705,8 +716,40 @@ function ageOn(d){
   if (day < 0){ m--; day += new Date(d.getFullYear(), d.getMonth(), 0).getDate(); }
   return m < 0 ? null : {m, d:day};
 }
-function stageOf(k){ const a = ageOn(parseKey(k)); return a ? stageForMonths(a.m) : (STAGES.some(s=>s.id===S.settings.stage) ? S.settings.stage : 'mid'); }
+// 단계 시작일: 직접 정한 날짜가 있으면 그 날짜, 없으면 생일 + 개월 수 (초기 5 · 중기 7 · 후기 9 · 완료기 12개월)
+const STAGE_AUTO_MONTH = {early:5, mid:7, late:9, done:12};
+function addMonthsKey(k, n){
+  const d = parseKey(k); const t = new Date(d.getFullYear(), d.getMonth() + n, d.getDate());
+  if (t.getDate() !== d.getDate()) t.setDate(0); // 1/31 + 1개월 → 2월 마지막 날
+  return keyOf(t);
+}
+function stageStart(id){
+  const c = S.settings.stageStarts && S.settings.stageStarts[id];
+  if (isDateKey(c)) return {date:c, custom:true};
+  if (isDateKey(S.settings.birthDate)) return {date:addMonthsKey(S.settings.birthDate, STAGE_AUTO_MONTH[id]), custom:false};
+  return null;
+}
+const stageAuto = () => isDateKey(S.settings.birthDate) || Object.values(S.settings.stageStarts || {}).some(isDateKey);
+function stageOf(k){
+  let any = false;
+  for (let i = STAGES.length - 1; i >= 0; i--){
+    const s = stageStart(STAGES[i].id);
+    if (s){ any = true; if (s.date <= k) return STAGES[i].id; }
+  }
+  if (any) return 'early';
+  return STAGES.some(s => s.id === S.settings.stage) ? S.settings.stage : 'mid';
+}
 const curStage = () => stageOf(TODAY);
+// 태어난 날을 1일로 셈 (백일 = 태어난 날 + 99일)
+function ddayOf(k){ const b = S.settings.birthDate; if (!isDateKey(b) || k < b) return null; return daysBetween(b, k) + 1; }
+function ddayHTML(k, cls){
+  const n = ddayOf(k); if (!n) return '';
+  const b = parseKey(S.settings.birthDate), d = parseKey(k);
+  const years = d.getFullYear() - b.getFullYear();
+  if (years >= 1 && d.getMonth() === b.getMonth() && d.getDate() === b.getDate()) return `<span class="${cls} mile" title="D+${n}">${years === 1 ? '돌' : years + '번째 생일'}</span>`;
+  if (n % 100 === 0) return `<span class="${cls} mile" title="D+${n}">${n}일</span>`;
+  return `<span class="${cls}">D+${n}</span>`;
+}
 
 const nm = id => IM.get(id)?.name || (id ? '(지운 재료)' : '');
 const colorOf = id => IM.get(id)?.color || 'white';
@@ -816,6 +859,9 @@ function testsOn(k){
   return out;
 }
 const testSet = k => new Set(testsOn(k).map(t => t.id));
+// 그날 시작한 테스트 재료 (달력·목록·상세에서는 시작한 날에만 강조)
+const startSet = k => new Set(testsOn(k).filter(t => t.n === 1).map(t => t.id));
+const testNotInMeals = (T, meals) => { if (!T.size) return []; const inM = new Set(meals.flatMap(mealIds)); return [...T].filter(id => !inM.has(id)); };
 function lastTest(){
   let best = null;
   for (const g of IM.values()) if (g.test && (!best || g.test.start > best.start)) best = {id:g.id, ...g.test};
@@ -1370,10 +1416,18 @@ function settingsHTML(){
           <label class="f" for="set-name">이름<input type="text" id="set-name" data-field="set-name" maxlength="20" value="${esc(s.babyName)}" placeholder="아기 이름"></label>
           <label class="f" for="set-sex">성별<select id="set-sex" data-field="set-sex"><option value=""${!s.sex ? ' selected' : ''}>선택 안 함</option><option value="boy"${s.sex === 'boy' ? ' selected' : ''}>남아</option><option value="girl"${s.sex === 'girl' ? ' selected' : ''}>여아</option></select></label>
           <label class="f" for="set-birth">태어난 날<input type="date" id="set-birth" data-field="set-birth" value="${esc(s.birthDate)}"></label>
-          <label class="f" for="set-stage">지금 단계${hasBirth ? ' (생일 기준 자동)' : ''}
-            <select id="set-stage" data-field="set-stage"${hasBirth ? ' disabled' : ''}>${STAGES.map(x => `<option value="${x.id}"${(hasBirth ? curStage() : s.stage) === x.id ? ' selected' : ''}>${x.name} · ${x.range}</option>`).join('')}</select></label>
+          <label class="f" for="set-stage">지금 단계${stageAuto() ? ' (시작일 기준 자동)' : ''}
+            <select id="set-stage" data-field="set-stage"${stageAuto() ? ' disabled' : ''}>${STAGES.map(x => `<option value="${x.id}"${(stageAuto() ? curStage() : s.stage) === x.id ? ' selected' : ''}>${x.name} · ${x.range}</option>`).join('')}</select></label>
         </div>
-        <p class="hint">태어난 날을 넣으면 날짜마다 월령에 맞는 단계로 재료 시기를 확인하고, 9개월이 되는 날부터는 후기 조합으로 짜요.</p>
+        <div class="stage-starts">
+          <span class="cglabel">단계 시작일 · 직접 정하면 그날부터 그 단계로 바뀌어요</span>
+          <div class="frow">${STAGES.map(x => {
+            const ss = stageStart(x.id);
+            const note = ss ? (ss.custom ? '직접 정함' : `자동 ${ss.date.replace(/-/g, '.')} (${STAGE_AUTO_MONTH[x.id]}개월)`) : '생일을 넣으면 자동';
+            return `<label class="f" for="ss-${x.id}">${x.name} 시작<input type="date" id="ss-${x.id}" data-field="stage-start" data-v="${x.id}" value="${ss && ss.custom ? ss.date : ''}"><small class="ss-note${ss && ss.custom ? ' on' : ''}">${note}</small></label>`;
+          }).join('')}</div>
+          <div class="row"><span class="hint">비워 두면 생일 기준 자동이에요. 지금은 <b>${stageById(curStage()).name}</b>예요.</span>${Object.values(s.stageStarts || {}).some(isDateKey) ? '<button type="button" class="btn sm quiet" data-act="ss-reset">모두 자동으로</button>' : ''}</div>
+        </div>
       </div>
       <div class="sbox">
         <h3>기기 연결 · 저장</h3>
@@ -1449,10 +1503,11 @@ function listHTML(y, mo){
     const d = new Date(y, mo, dd), k = keyOf(d), day = S.plan.get(k), meals = day ? day.meals : [];
     const grams = meals.filter(m => m.amount != null);
     const wd = d.getDay();
-    const tests = testsOn(k); const T = new Set(tests.map(t => t.id));
-    rows += `<button type="button" class="lrow${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${tests.length ? ' testing' : ''}" data-act="sel" data-k="${k}" aria-pressed="${k === S.sel}">
-      <span class="ldate${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}"><b>${dd}</b><small>${WD[wd]}</small></span>
-      <span class="lmeals">${tests.length ? `<span class="ltest">알레르기 테스트 ${tests.map(t => `${hlT(t.id, T)} ${t.n}/${t.days}일째`).join(', ')}</span>` : ''}${meals.length ? meals.map(m => listMeal(m, T)).join('') : '<span class="muted">식단 없음</span>'}${day && day.memo ? `<span class="lmemo">메모 · ${esc(day.memo)}</span>` : ''}</span>
+    const T = startSet(k);
+    const notIn = testNotInMeals(T, meals);
+    rows += `<button type="button" class="lrow${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}" data-act="sel" data-k="${k}" aria-pressed="${k === S.sel}">
+      <span class="ldate${wd === 0 ? ' sun' : wd === 6 ? ' sat' : ''}"><b>${dd}</b><small>${WD[wd]}</small>${ddayHTML(k, 'ldd')}</span>
+      <span class="lmeals">${notIn.length ? `<span class="ltest">알레르기 테스트 ${notIn.map(id => hlT(id, T)).join(' ')}</span>` : ''}${meals.length ? meals.map(m => listMeal(m, T)).join('') : '<span class="muted">식단 없음</span>'}${day && day.memo ? `<span class="lmemo">메모 · ${esc(day.memo)}</span>` : ''}</span>
       ${grams.length ? `<span class="ltot">${grams.reduce((s, m) => s + m.amount, 0)}g</span>` : '<span></span>'}
     </button>`;
   }
@@ -1462,25 +1517,28 @@ function calendarHTML(){
   const y = S.month.getFullYear(), mo = S.month.getMonth();
   const first = new Date(y, mo, 1), last = new Date(y, mo+1, 0);
   const start = addDays(first, -first.getDay()), end = addDays(last, 6 - last.getDay());
-  const hasBirth = isDateKey(S.settings.birthDate);
+  const autoStage = stageAuto();
   let cells = '', filled = 0;
   let prevStage = stageOf(keyOf(addDays(start, -1)));
   for (let d = start; d <= end; d = addDays(d, 1)){
     const k = keyOf(d), inMonth = d.getMonth() === mo, day = S.plan.get(k), meals = day ? day.meals : [];
     if (inMonth && meals.length) filled++;
     const stId = stageOf(k);
-    const change = hasBirth && stId !== prevStage; prevStage = stId;
+    const change = autoStage && stId !== prevStage; prevStage = stId;
     const a = ageOn(d);
     const rs = meals.map(m => analyze(m.protein, m.items, m.side, stId));
     const flag = rs.some(r => r.late.length || r.allergy.length) ? '<i class="flag bad" title="시기가 이르거나 반응이 있었던 재료가 있어요"></i>'
       : rs.some(r => r.bad.length) ? '<i class="flag warn" title="주의할 궁합이 있어요"></i>' : '';
     const grams = meals.filter(m => m.amount != null);
     const tot = grams.length ? `<span class="dtot" title="이날 먹은 양 합계">${grams.reduce((s, m) => s + m.amount, 0)}g</span>` : '';
-    const tests = testsOn(k); const T = new Set(tests.map(t => t.id));
-    const label = `${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일` + (tests.length ? `, 알레르기 테스트 ${tests.map(t => `${nm(t.id)} ${t.n}일째`).join(', ')}` : '') + (meals.length ? `, ${meals.length}끼: ` + meals.map(m => `${m.slot}${m.time ? ' ' + m.time : ''} ` + orderedIds(m).map(nm).join(' ') + (m.amount != null ? ` ${m.amount}그램` : '')).join(' / ') : ', 식단 없음');
-    cells += `<button type="button" class="cell${inMonth ? '' : ' out'}${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${d.getDay() === 0 ? ' sun' : ''}${tests.length ? ' testing' : ''}" data-act="sel" data-k="${k}" aria-label="${esc(label)}" aria-pressed="${k === S.sel}">
-      <span class="ctop"><span class="dnum">${d.getDate()}</span>${change ? `<span class="stchg">${stageById(stId).name} 시작</span>` : (a && a.d === 0 ? `<span class="age">${a.m}개월</span>` : '')}${testBadge(tests, true)}<span class="cright">${tot}${flag}</span></span>
-      <span class="meals">${meals.map(m => cellMeal(m, T)).join('')}${day && day.memo ? '<span class="memo-mark">메모 있음</span>' : ''}</span>
+    // 알레르기 테스트는 시작한 날에만, 그 재료에만 빨간 테두리
+    const T = startSet(k);
+    const notIn = testNotInMeals(T, meals);
+    const dn = ddayOf(k);
+    const label = `${d.getMonth()+1}월 ${d.getDate()}일 ${WD[d.getDay()]}요일` + (dn ? `, 태어난 지 ${dn}일째` : '') + (T.size ? `, 알레르기 테스트 시작 ${[...T].map(nm).join(', ')}` : '') + (meals.length ? `, ${meals.length}끼: ` + meals.map(m => `${m.slot}${m.time ? ' ' + m.time : ''} ` + orderedIds(m).map(nm).join(' ') + (m.amount != null ? ` ${m.amount}그램` : '')).join(' / ') : ', 식단 없음');
+    cells += `<button type="button" class="cell${inMonth ? '' : ' out'}${k === TODAY ? ' today' : ''}${k === S.sel ? ' sel' : ''}${d.getDay() === 0 ? ' sun' : ''}" data-act="sel" data-k="${k}" aria-label="${esc(label)}" aria-pressed="${k === S.sel}">
+      <span class="ctop"><span class="dnum">${d.getDate()}</span>${ddayHTML(k, 'dday')}${change ? `<span class="stchg">${stageById(stId).name} 시작</span>` : (a && a.d === 0 ? `<span class="age">${a.m}개월</span>` : '')}<span class="cright">${tot}${flag}</span></span>
+      <span class="meals">${notIn.length ? `<span class="mnames tst-only">${notIn.map(id => `<span class="mn tst" style="--h:var(--hl-${colorOf(id)})">${esc(shortNm(id))}</span>`).join('')}</span><span class="mtxt tst-only">테스트 ${notIn.map(id => `<b class="tst-t">${esc(nm(id))}</b>`).join(' ')}</span>` : ''}${meals.map(m => cellMeal(m, T)).join('')}${day && day.memo ? '<span class="memo-mark">메모 있음</span>' : ''}</span>
     </button>`;
   }
   const g = S.ui.gen;
@@ -1508,7 +1566,7 @@ function calendarHTML(){
       <div class="legend">
         <span>${ptag('beef')} 소고기</span><span>${ptag('chicken')} 닭고기</span><span>${ptag('tofu')} 두부</span><span>${ptag('cod')} 생선</span>
         <span><b class="st good">✓</b> 잘 먹음</span><span><b class="st some">△</b> 조금</span><span><b class="st no">✕</b> 거부</span>
-        <span><b class="mg">120g</b> 먹은 양</span><span><span class="tstb">1/3</span> 알레르기 테스트 (빨간 테두리)</span>
+        <span><b class="mg">120g</b> 먹은 양</span><span><mark class="hl tst" style="--h:var(--hl-yellow)">달걀</mark> 알레르기 테스트 시작한 날의 재료</span>${isDateKey(S.settings.birthDate) ? '<span><span class="dday">D+215</span> 태어난 지 며칠째 (태어난 날 = 1일)</span>' : ''}
         <span><i class="flag bad"></i> 시기·반응 확인</span><span><i class="flag warn"></i> 주의 궁합</span>
       </div>
       ${weekHTML()}
@@ -1541,7 +1599,7 @@ function genHTML(){
       ${sideFruits.length ? `<p class="hint">조합에 없는 과일 ${sideFruits.map(hl).join(' ')}도 곁들임으로 몇 끼에 붙여 넣어요.</p>` : ''}
     </div>`;
   const sel = (id, opts, val) => `<select id="${id}" data-bind="gen.${id.slice(2)}" data-rerender="1">${opts.map(([v,l]) => `<option value="${v}"${String(val) === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
-  const stOpts = (hasBirth ? [['auto','날짜별 자동 (생일 기준)']] : []).concat(STAGES.map(s => [s.id, `${s.name} · ${s.range}`]));
+  const stOpts = (stageAuto() ? [['auto','날짜별 자동 (단계 시작일 기준)']] : []).concat(STAGES.map(s => [s.id, `${s.name} · ${s.range}`]));
   return `<form class="card gen" data-form="gen">
     <h3>식단 자동 짜기</h3>
     <div class="gen-grid">
@@ -1588,7 +1646,7 @@ function sheetHTML(){
   return `<aside class="sheet" id="sheet" aria-label="선택한 날 식단">
     <div class="sheet-head">
       <div><p class="eyebrow">${d.getFullYear()}년${k === TODAY ? ' · 오늘' : ''}</p><h2>${d.getMonth()+1}월 ${d.getDate()}일<span>${WD[d.getDay()]}요일</span></h2></div>
-      <div class="sheet-tags"><span class="tag stage">${st.name} ${st.range}</span>${a ? `<span class="tag">생후 ${a.m}개월 ${a.d}일</span>` : ''}${grams.length ? `<span class="tag total">먹은 양 ${tot}g</span>` : ''}</div>
+      <div class="sheet-tags"><span class="tag stage">${st.name} ${st.range}</span>${a ? `<span class="tag">생후 ${a.m}개월 ${a.d}일</span>` : ''}${ddayOf(k) ? `<span class="tag dtag">태어난 지 ${ddayOf(k)}일째 · D+${ddayOf(k)}</span>` : ''}${grams.length ? `<span class="tag total">먹은 양 ${tot}g</span>` : ''}</div>
     </div>
     <div class="day-step"><button type="button" class="btn sm" data-act="day-step" data-d="-1">‹ 전날</button><button type="button" class="btn sm" data-act="day-step" data-d="1">다음날 ›</button></div>
     ${testHTML(k)}
@@ -1633,7 +1691,7 @@ function testHTML(k){
 function mealHTML(k, m, i, st, SB){
   const r = analyze(m.protein, m.items, m.side, st.id);
   const ed = S.ui.editor && S.ui.editor.k === k && S.ui.editor.i === i ? S.ui.editor : null;
-  const T = testSet(k);
+  const T = startSet(k);
   const items = orderedIds(m).map(id => hlT(id, T)).join(' ');
   const side = m.side.length ? `<span class="side">+ ${m.side.map(id => hlT(id, T)).join(' ')}</span>` : '';
   const tool = (mode, label) => `<button type="button" class="btn sm${ed && ed.mode === mode ? ' on' : ''}" data-act="ed" data-k="${k}" data-i="${i}" data-mode="${mode}" aria-expanded="${!!(ed && ed.mode === mode)}">${label}</button>`;
@@ -2015,7 +2073,7 @@ document.addEventListener('click', e => {
     case 'day-step': S.sel = keyOf(addDays(parseKey(S.sel), Number(t.dataset.d))); S.ui.editor = null; goMonthOf(S.sel); break;
     case 'gen-toggle':
       S.ui.gen.open = !S.ui.gen.open;
-      if (S.ui.gen.open){ S.ui.gen.start = S.sel; S.ui.gen.stage = isDateKey(S.settings.birthDate) ? 'auto' : curStage(); S.ui.gen.ings = defaultGenIngs(genStage(S.ui.gen)); }
+      if (S.ui.gen.open){ S.ui.gen.start = S.sel; S.ui.gen.stage = stageAuto() ? 'auto' : curStage(); S.ui.gen.ings = defaultGenIngs(genStage(S.ui.gen)); }
       break;
     case 'g-ing': { const o = S.ui.gen; if (!Array.isArray(o.ings)) o.ings = []; toggleIn(o.ings, id); break; }
     case 'g-ing-reset': S.ui.gen.ings = defaultGenIngs(genStage(S.ui.gen)); break;
@@ -2131,6 +2189,7 @@ document.addEventListener('click', e => {
     }
 
     case 'calmode': S.ui.calMode = v === 'list' ? 'list' : 'grid'; LS.set('calMode', S.ui.calMode); break;
+    case 'ss-reset': S.settings.stageStarts = {}; S.ui.comboStage = null; saveSettings(); toast('단계 시작일을 모두 생일 기준 자동으로 돌렸어요'); break;
     case 'test-open': S.ui.testPick = S.ui.testPick && S.ui.testPick.k === k ? null : {k, days:String(TEST_DAYS), more:false}; break;
     case 'test-more': if (S.ui.testPick) S.ui.testPick.more = !S.ui.testPick.more; break;
     case 'test-start': if (S.ui.testPick) startTest(S.ui.testPick.k, id); break;
@@ -2306,6 +2365,12 @@ document.addEventListener('change', e => {
   else if (f === 'set-sex'){ S.settings.sex = ['boy','girl'].includes(t.value) ? t.value : ''; saveSettings(); }
   else if (f === 'set-birth'){ S.settings.birthDate = isDateKey(t.value) ? t.value : ''; saveSettings(); }
   else if (f === 'set-stage'){ S.settings.stage = t.value; S.ui.comboStage = null; saveSettings(); }
+  else if (f === 'stage-start'){
+    const v2 = t.dataset.v; if (!STAGES.some(x => x.id === v2)) return;
+    S.settings.stageStarts = {...(S.settings.stageStarts || {}), [v2]:isDateKey(t.value) ? t.value : ''};
+    S.ui.comboStage = null; saveSettings();
+    toast(isDateKey(t.value) ? `${stageById(v2).name}를 ${md(t.value)}부터 시작해요` : `${stageById(v2).name} 시작일을 자동으로 돌렸어요`);
+  }
   scheduleRender();
 });
 document.addEventListener('submit', e => {
