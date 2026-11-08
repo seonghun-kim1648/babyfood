@@ -1194,9 +1194,10 @@ function settingsHTML(){
       <p class="hint">${token ? '지금 토큰으로는 저장소를 열 수 없어요. 새 토큰을 만들어 다시 연결해 주세요.' : 'PC와 폰이 같은 기록을 보려면 기기마다 한 번 연결해요. 이미 연결된 기기가 있으면 그 기기의 설정 → ‘다른 기기 연결 (QR)’을 폰으로 찍는 게 가장 쉬워요.'}</p>
       <ol class="steps">
         <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub 토큰 만들기</a> 페이지를 열어요</li>
-        <li>Repository access → Only select repositories → <b>${esc(GH.repo)}</b></li>
-        <li>Permissions → Repository permissions → Contents → <b>Read and write</b></li>
-        <li>Generate token을 누르고 나온 값을 복사해 아래에 붙여넣어요</li>
+        <li>GitHub 화면은 영어로만 나와요. <b>Token name</b>(토큰 이름)에 babyfood라고 쓰고, <b>Expiration</b>(만료 기간)은 가장 길게 골라요</li>
+        <li><b>Repository access</b>(저장소 접근)에서 <b>Only select repositories</b>(선택한 저장소만)를 누르고 <b>${esc(GH.repo)}</b>를 골라요</li>
+        <li><b>Permissions</b>(권한)에서 <b>Contents</b>(파일 내용)를 <b>Read and write</b>(읽기·쓰기)로 바꿔요. 목록에 없으면 <b>Add permissions</b>(권한 추가)를 눌러 Contents를 골라요</li>
+        <li>맨 아래 <b>Generate token</b>(토큰 만들기)을 누르고, 나온 값(github_pat_로 시작)을 복사해 아래 칸에 붙여넣어요</li>
       </ol>
       <label class="f" for="tok">GitHub 토큰<input type="password" id="tok" data-bind="tok" autocomplete="off" spellcheck="false" placeholder="github_pat_..." value="${esc(S.ui.tok)}"></label>
       <div class="row"><button type="button" class="btn primary" data-act="connect">연결</button></div>`;
