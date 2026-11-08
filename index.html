@@ -1000,7 +1000,7 @@ function toast(msg, undo){
 
 /* ───────────── generator ───────────── */
 // 자동 짜기에서 '쓸 재료'로 켠 재료만 들어간 조합인지 (곁들임 과일은 켠 것만 남김)
-function comboFits(c, sel){ if (c.protein && !sel.has(c.protein)) return false; return c.items.every(id => id === 'rice' || sel.has(id)); }
+function comboFits(c, sel){ if (c.protein && !sel.has(c.protein)) return false; return c.items.every(id => sel.has(id)); }
 function poolFor(stId, o){
   let pool = combosOf(stId);
   if (pool.length < 3) pool = combosUpTo(stId);
@@ -1025,7 +1025,7 @@ function defaultGenIngs(stId){
   for (const c of combosUpTo(stId)) for (const id of [c.protein, ...c.items, ...c.side]) if (id) set.add(id);
   for (const id of stockByIng().keys()) set.add(id);
   for (const id of S.fridge) set.add(id);
-  return [...set].filter(id => { const g = IM.get(id); return g && !g.hidden && !g.allergy && g.m <= st.max && id !== 'rice'; });
+  return [...set].filter(id => { const g = IM.get(id); return g && !g.hidden && !g.allergy && g.m <= st.max; });
 }
 // 켠 재료 중 어느 조합에도 안 들어간 재료(새로 산 재료 등)로 새 조합 만들기
 function extraCombos(stId, o){
@@ -1163,7 +1163,7 @@ function availableIds(stId){
   const st = stageById(stId);
   const SB = stockByIng();
   const ok = id => { const g = IM.get(id); return g && g.m <= st.max && !g.allergy; };
-  const ids = [...new Set([...SB.keys(), ...S.fridge])].filter(id => id !== 'rice' && ok(id));
+  const ids = [...new Set([...SB.keys(), ...S.fridge])].filter(ok);
   return {ids, SB};
 }
 function fridgeIdeas(stId){
@@ -1178,7 +1178,8 @@ function fridgeIdeas(stId){
   let prots = ids.filter(id => IM.get(id).cat === 'prot');
   const protMissing = !prots.length;
   if (protMissing) prots = ['beef','chicken'].filter(id => { const g = IM.get(id); return g && g.m <= stageById(stId).max && !g.allergy; });
-  const vegs = ids.filter(id => ['veg','mush','grain'].includes(IM.get(id).cat)).sort((a,b) => urgBonus(b) - urgBonus(a)).slice(0, 12);
+  // 쌀은 모든 죽의 베이스라 자동으로 만드는 조합 재료로는 쓰지 않음
+  const vegs = ids.filter(id => ['veg','mush','grain'].includes(IM.get(id).cat) && id !== 'rice').sort((a,b) => urgBonus(b) - urgBonus(a)).slice(0, 12);
   const sizes = vegs.length >= 3 ? [3,2] : vegs.length === 2 ? [2,1] : vegs.length === 1 ? [1] : [];
   const have = new Set(combosUpTo(stId).map(ckey));
   const cands = [];
@@ -1345,7 +1346,7 @@ function pickerHTML(ctx, stId, sections, showAll, extraTools){
   const manage = !!S.ui.manage[ctx];
   const cats = [...new Set(sections.flatMap(s => s.cats))];
   const body = sections.map(sec => sec.cats.map(cat => {
-    const list = [...IM.values()].filter(g => g.cat === cat && g.id !== 'rice' && (!g.hidden || sec.selected.includes(g.id)) && (showAll || g.m <= st.max || sec.selected.includes(g.id))).sort(byIng);
+    const list = [...IM.values()].filter(g => g.cat === cat && (!g.hidden || sec.selected.includes(g.id)) && (showAll || g.m <= st.max || sec.selected.includes(g.id))).sort(byIng);
     if (!list.length) return '';
     const label = sec.label && sec.cats.length === 1 ? sec.label : CAT_NAME[cat];
     return `<div class="cgroup"><span class="cglabel">${label}</span><div class="chips">${list.map(g => chip(g.id, sec.selected.includes(g.id), sec.act, g.m > st.max, manage)).join('')}</div></div>`;
@@ -1359,7 +1360,7 @@ function pickerHTML(ctx, stId, sections, showAll, extraTools){
       <input type="text" id="add-name-${ctx}" data-bind="add.${ctx}.name" data-enter="${ctx}" value="${esc(a.name)}" placeholder="새 재료 이름 (예: 케일)" maxlength="12" aria-label="새 재료 이름">
       <select id="add-cat-${ctx}" data-bind="add.${ctx}.cat" aria-label="분류">${(cats.length > 1 ? cats : ALL_CATS).map(c => `<option value="${c}"${a.cat === c ? ' selected' : ''}>${CAT_NAME[c]}</option>`).join('')}</select>
       <select id="add-m-${ctx}" data-bind="add.${ctx}.m" aria-label="먹기 시작하는 월령">${[5,6,7,8,9,10,11,12].map(m => `<option value="${m}"${String(a.m) === String(m) ? ' selected' : ''}>${m}개월~</option>`).join('')}</select>
-      <button type="button" class="btn sm primary" data-act="pk-add" data-ctx="${ctx}">추가</button>
+      <button type="button" class="btn sm primary" data-act="pk-add" data-ctx="${ctx}" data-st="${stId}">추가</button>
       <p class="hint">× 를 누르면 목록에서 빠져요. 뺀 기본 재료는 재료·궁합 탭 맨 아래 ‘목록에서 뺀 재료’에서 다시 꺼낼 수 있어요.</p>
     </div>` : ''}
   </div>`;
@@ -1370,7 +1371,7 @@ function pickerHTML(ctx, stId, sections, showAll, extraTools){
 const SHORT = {kingoyster:'새송이', shiitake:'표고', button:'양송이', enoki:'팽이', cauliflower:'콜리', redcabbage:'적양배', noodle:'국수', cheese:'치즈', yogurt:'요거트', quail:'메추리', pork:'돼지', gim:'김', watermelon:'수박', perilla:'들기름'};
 const shortNm = id => SHORT[id] || (nm(id).length > 4 ? nm(id).slice(0, 3) : nm(id));
 function cellMeal(m){
-  const veg = m.items.filter(i => i !== 'rice');
+  const veg = m.items;
   const txt = veg.map(nm).join('·') + (m.side.length ? ' +' + m.side.map(nm).join('·') : '');
   const st = {good:'<b class="st good" title="잘 먹음">✓</b>', some:'<b class="st some" title="조금 먹음">△</b>', no:'<b class="st no" title="거부">✕</b>'}[m.status] || '';
   const when = m.time ? `${m.slot} ${m.time}` : m.slot;
@@ -1382,7 +1383,7 @@ function cellMeal(m){
 // 목록 보기: 한 줄에 하루
 function listMeal(m){
   const st = {good:'<b class="st good">✓ 잘 먹음</b>', some:'<b class="st some">△ 조금</b>', no:'<b class="st no">✕ 거부</b>'}[m.status] || '';
-  const items = [m.protein, ...m.items.filter(i => i !== 'rice')].filter(Boolean).map(hl).join(' ');
+  const items = [m.protein, ...m.items].filter(Boolean).map(hl).join(' ');
   return `<span class="lmeal"><span class="lmeta">${ptag(m.protein)}<span>${esc(m.slot)}${m.time ? ' ' + esc(m.time) : ''}</span>${m.amount != null ? `<b class="mg">${m.amount}g</b>` : ''}${st}</span><span class="litems">${items || '<span class="muted">재료 없음</span>'}${m.side.length ? ` <span class="side">+ ${m.side.map(hl).join(' ')}</span>` : ''}</span></span>`;
 }
 function listHTML(y, mo){
@@ -1509,7 +1510,7 @@ function weekHTML(){
   const count = new Map(); let meals = 0, grams = 0;
   for (let i = 0; i < 7; i++){
     const day = S.plan.get(keyOf(addDays(ws, i)));
-    for (const m of day ? day.meals : []){ meals++; if (m.amount != null) grams += m.amount; for (const id of [m.protein, ...m.items, ...m.side]) if (id && id !== 'rice') count.set(id, (count.get(id)||0) + 1); }
+    for (const m of day ? day.meals : []){ meals++; if (m.amount != null) grams += m.amount; for (const id of [m.protein, ...m.items, ...m.side]) if (id) count.set(id, (count.get(id)||0) + 1); }
   }
   const catOrder = Object.fromEntries(CATS.map((c, i) => [c.id, i]));
   const SB = stockByIng();
@@ -1597,7 +1598,7 @@ function editorHTML(k, i, m, st, ed){
   }
   // fridge
   const fx = fridgeIdeas(st.id);
-  const onChips = S.fridge.filter(id => IM.has(id) && id !== 'rice');
+  const onChips = S.fridge.filter(id => IM.has(id));
   const dr = ed.draft;
   const avail = fx.ids.slice().sort((a,b) => (ALL_CATS.indexOf(IM.get(a).cat) - ALL_CATS.indexOf(IM.get(b).cat)) || byIng(IM.get(a), IM.get(b)));
   const actFor = id => { const c = IM.get(id).cat; return c === 'prot' ? 'd-prot' : c === 'fruit' ? 'd-side' : 'd-item'; };
@@ -1885,6 +1886,14 @@ function selectInCtx(ctx, id){
   else if (ctx === 'stock'){ if (!S.ui.stockForm.ings.includes(id)) S.ui.stockForm.ings.push(id); }
   else if (ctx === 'gen'){ const o = S.ui.gen; if (!Array.isArray(o.ings)) o.ings = []; if (!o.ings.includes(id)) o.ings.push(id); }
 }
+// 재료를 목록에서 뺄 때, 지금 고르고 있던 곳(재료 편집·조합 만들기·토핑 추가·자동 짜기)에서도 빼기
+function deselectEverywhere(id){
+  const drop = dr => { if (!dr) return; if (dr.protein === id) dr.protein = ''; dr.items = dr.items.filter(x => x !== id); dr.side = dr.side.filter(x => x !== id); };
+  drop(S.ui.editor && S.ui.editor.draft);
+  drop(S.ui.comboForm);
+  S.ui.stockForm.ings = S.ui.stockForm.ings.filter(x => x !== id);
+  if (Array.isArray(S.ui.gen.ings)) S.ui.gen.ings = S.ui.gen.ings.filter(x => x !== id);
+}
 
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t || t.disabled) return;
@@ -1991,8 +2000,14 @@ document.addEventListener('click', e => {
       const name = (a.name || '').trim();
       if (!name){ toast('새 재료 이름을 적어주세요'); return; }
       const g = [...IM.values()].find(x => x.name === name);
+      const stA = stageById(t.dataset.st || curStage());
       let newId;
-      if (g){ newId = g.id; if (g.hidden){ setHidden(g.id, false); toast(`‘${name}’ 다시 목록에 넣었어요`); } else toast(`‘${name}’ 이미 있어서 골라뒀어요`); }
+      if (g){
+        newId = g.id;
+        if (g.hidden){ setHidden(g.id, false); toast(`‘${name}’ 목록에서 뺐던 재료라 다시 넣고 골라 뒀어요`); }
+        else if (g.m > stA.max) toast(`‘${name}’ 원래 있던 재료예요. ${g.m}개월부터 권장이라 목록에 숨어 있었는데, 골라 뒀어요 (점선 칸)`);
+        else toast(`‘${name}’ 원래 목록에 있던 재료라 골라 뒀어요`);
+      }
       else { newId = addCustomIng(name, CAT_NAME[a.cat] ? a.cat : 'veg', Number(a.m) || 7); toast(`‘${name}’ 재료를 추가했어요`); }
       selectInCtx(ctx, newId);
       a.name = '';
@@ -2002,6 +2017,7 @@ document.addEventListener('click', e => {
       const g = IM.get(id); if (!g) break;
       const wasInFridge = S.fridge.includes(id);
       setHidden(id, true);
+      deselectEverywhere(id); // 골라 둔 상태가 남아 있으면 목록에서 안 사라짐
       if (wasInFridge){ S.fridge = S.fridge.filter(x => x !== id); saveFridge(); }
       toast(`‘${g.name}’ 목록에서 뺐어요`, () => { setHidden(id, false); if (wasInFridge && !S.fridge.includes(id)){ S.fridge.push(id); saveFridge(); } render(); });
       break;
